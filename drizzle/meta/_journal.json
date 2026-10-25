@@ -1,0 +1,20 @@
+{
+  "version": "7",
+  "dialect": "sqlite",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "6",
+      "when": 1792950036572,
+      "tag": "0000_rich_boom_boom",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1792951550938,
+      "tag": "0001_wooden_thor",
+      "breakpoints": true
+    }
+  ]
+}

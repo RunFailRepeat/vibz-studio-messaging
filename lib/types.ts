@@ -1,0 +1,10 @@
+export type Member = {id:string; name:string; email:string; role:'owner'|'member'; agentId:string; connected:boolean; lastSeenAt:string|null};
+export type Agent = {id:string; name:string; ownerId:string; description:string; status:'not_connected'|'offline'|'idle'|'working'|'blocked'; detail:string; lastSeenAt:string|null; connectedVia:string|null; pendingMentions?:number};
+export type Channel = {id:string; name:string; description:string; createdAt:string};
+export type MessageMention = {id:string;agentId:string;agentName:string;status:'pending'|'replied';replyMessageId:string|null;createdAt:string;repliedAt:string|null};
+export type Message = {id:string; channelId:string; parentId:string|null; authorId:string; authorKind:'human'|'agent'; authorName:string; body:string; createdAt:string; replyCount?:number;mentions?:MessageMention[]};
+export type AgentMention = {id:string;status:'pending'|'replied';agentId:string;channelId:string;message:Message;rootMessage:Message;context:Message[];createdAt:string};
+export type Evidence = {label:string;url?:string};
+export type Task = {id:string; channelId:string; title:string; brief:string; acceptance:string; assigneeAgentId:string|null; createdBy:string; state:'inbox'|'queued'|'running'|'review'|'done'|'blocked'|'cancelled'; result:string|null; evidence:Evidence[]; reviewNote:string|null; createdAt:string; updatedAt:string; leaseExpiresAt:string|null; attempt:number};
+export type Activity = {id:string; type:string; actorId:string; actorName:string; taskId:string|null; detail:string; createdAt:string};
+export type StudioState = {workspace:{name:string;maxHumans:number;ownerId:string}; viewer:Member; members:Member[]; agents:Agent[]; channels:Channel[]; messages:Message[]; tasks:Task[]; activity:Activity[]; serverTime:string; messageLimit:number};
