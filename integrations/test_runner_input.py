@@ -117,6 +117,93 @@ Path('result.txt').write_text('synthetic result')
             f"subprocess.Popen([sys.executable,'-c',{child!r}])\n"
             "while not Path('descendant.pid').exists(): time.sleep(.001)\n", descendant=True)
 
+    def terminal_log(self, size, *, replace_path=False, descendant=False):
+        """Force the first poll to observe actual child exit, not a timing race."""
+        actual = subprocess.Popen
+        children = []
+        class Client:
+            def post(self, payload):
+                return {}
+        lease = mock.Mock()
+        lease.client = Client()
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            args = argparse.Namespace(runner='codex', codex_bin='never-run', workspace=root,
+                                      sandbox='read-only', job_timeout=10)
+            code = ("import os,sys; from pathlib import Path; sys.stdin.buffer.read(); "
+                    f"sys.stdout.buffer.write(b'x' * {size}); sys.stdout.buffer.flush(); "
+                    "Path('result.txt').write_text('synthetic terminal result'); ")
+            if descendant:
+                writer = ("import os,sys,time; from pathlib import Path\n"
+                    "Path('writer.pid').write_text(str(os.getpid()))\n"
+                    "deadline=time.monotonic()+2\n"
+                    "while not Path('go').exists() and time.monotonic()<deadline: time.sleep(.001)\n"
+                    "if Path('go').exists():\n"
+                    " sys.stdout.buffer.write(b'x'*(16*1024*1024+1)); sys.stdout.buffer.flush()\n"
+                    " Path('written').touch()\n")
+                code += ("import subprocess,time\n"
+                    f"subprocess.Popen([sys.executable,'-c',{writer!r}])\n"
+                    "while not Path('writer.pid').exists(): time.sleep(.001)\n")
+                def renew(detail):
+                    if not detail.startswith('Runner exited successfully'):
+                        return
+                    (root / 'go').touch()
+                    pid = int((root / 'writer.pid').read_text())
+                    for _ in range(100):
+                        status = Path(f'/proc/{pid}/stat')
+                        if ((root / 'written').exists() or not status.exists()
+                                or status.read_text().split(') ')[1].startswith('Z')):
+                            return
+                        time.sleep(.01)
+                    self.fail('writer did not stop or finish during final renewal')
+                lease.renew.side_effect = renew
+            if replace_path:
+                code += ("os.lseek(1,0,os.SEEK_SET); "
+                         "Path('runner.log').rename('original.log'); Path('runner.log').write_bytes(b'')")
+            def launch(command, **kwargs):
+                child = actual([sys.executable, '-c', code], **kwargs)
+                poll = child.poll
+                def terminal_poll():
+                    child.wait(timeout=5)
+                    return poll()
+                child.poll = terminal_poll
+                children.append(child)
+                return child
+            try:
+                with mock.patch.object(bridge.subprocess, 'Popen', side_effect=launch):
+                    if size > 16 * 1024 * 1024:
+                        with self.assertRaisesRegex(bridge.BridgeError, 'log size limit'):
+                            bridge.execute(args, {'id':'synthetic'}, lease, root)
+                        self.assertEqual(lease.renew.call_count, 1)
+                    else:
+                        summary, _ = bridge.execute(args, {'id':'synthetic'}, lease, root)
+                        self.assertIn('synthetic terminal result', summary)
+                        if descendant:
+                            self.assertFalse((root / 'written').exists())
+                            self.assertLessEqual((root / 'runner.log').stat().st_size, 16 * 1024 * 1024)
+                self.assertTrue(children[0].stdin.closed)
+                self.assertEqual(children[0].returncode, 0)
+            finally:
+                for child in children:
+                    try:
+                        os.killpg(child.pid, 9)
+                    except ProcessLookupError:
+                        pass
+                    child.wait(timeout=5)
+                    child.stdin.close()
+
+    def test_terminal_oversize_log_rejected_even_if_no_running_poll(self):
+        self.terminal_log(16 * 1024 * 1024 + 1)
+
+    def test_terminal_log_check_uses_open_descriptor_despite_rewind_and_rename(self):
+        self.terminal_log(16 * 1024 * 1024 + 1, replace_path=True)
+
+    def test_terminal_log_exact_limit_is_accepted(self):
+        self.terminal_log(16 * 1024 * 1024)
+
+    def test_group_is_stopped_before_final_renewal_can_trigger_more_output(self):
+        self.terminal_log(0, descendant=True)
+
 
 if __name__ == '__main__':
     unittest.main()

@@ -238,3 +238,17 @@ reaping is distinguished from runnable work). These Linux tests require
 `fcntl.F_SETPIPE_SZ`; they do not run models or call a network service. Descendants
 that create a new session and escape the process group require host containment;
 this bridge does not provide that containment.
+
+The 16 MiB runner-log acceptance limit is checked on the open file descriptor
+during execution and again after a successful child exit and owned process-group
+cleanup, before final lease renewal or result acceptance. Successful cleanup is
+tracked so the group is not signaled again in the finalizer; exception paths
+retain cleanup. A fast-exiting child cannot bypass the final check; seeking or replacing
+the log pathname cannot substitute a smaller file for that check. Exactly 16 MiB
+remains allowed. This repairs a pre-existing gap, not a regression introduced by
+the rework-context/input repair. The polling check is not a filesystem quota:
+output can transiently exceed the limit before detection. Deterministic offline
+subprocess tests cover terminal oversize output, exact-limit acceptance, and an
+oversize descriptor whose offset and pathname were changed by the fake child.
+A further test triggers a surviving writer during final lease renewal and verifies
+that cleanup has already stopped it before it can enlarge the accepted log.
