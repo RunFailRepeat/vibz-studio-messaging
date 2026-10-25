@@ -414,6 +414,7 @@ def execute(args, task: dict, lease: Lease, run_dir: Path) -> tuple[str, dict]:
                        "detail": f"Starting work on assigned task {task['id']}."})
     started, renewed = time.monotonic(), time.monotonic()
     process = None
+    group_stopped = False
     try:
         with (run_dir / "runner.log").open("wb") as log:
             process = subprocess.Popen(command, stdin=subprocess.PIPE, stdout=log, stderr=log,
@@ -443,7 +444,7 @@ def execute(args, task: dict, lease: Lease, run_dir: Path) -> tuple[str, dict]:
                 elapsed = time.monotonic() - started
                 if elapsed >= args.job_timeout:
                     raise BridgeError("Runner reached its configured timeout.")
-                if log.tell() > 16 * 1024 * 1024:
+                if os.fstat(log.fileno()).st_size > 16 * 1024 * 1024:
                     raise BridgeError("Runner exceeded its local log size limit.")
                 if time.monotonic() - renewed >= 30:
                     lease.renew(f"{args.runner} process is still running; elapsed {int(elapsed)} seconds. No result has been delivered.")
@@ -457,6 +458,14 @@ def execute(args, task: dict, lease: Lease, run_dir: Path) -> tuple[str, dict]:
                 raise BridgeError("Runner exited before receiving the complete prompt.")
             if process.returncode != 0:
                 raise BridgeError(f"Selected {args.runner} runner exited with status {process.returncode}; inspect its local runner.log.")
+            # Stop remaining owned writers before validating their final output.
+            # Mark success so finally cannot signal a subsequently reused group.
+            stop_process(process)
+            group_stopped = True
+            # A fast child can exit before any running poll observes its output.
+            # Inspect the still-open descriptor, not an offset or replaceable path.
+            if os.fstat(log.fileno()).st_size > 16 * 1024 * 1024:
+                raise BridgeError("Runner exceeded its local log size limit.")
         lease.renew("Runner exited successfully; preparing its actual output for human review.")
         if not output.is_file() or output.is_symlink() or output.stat().st_size > MAX_RESULT_BYTES:
             raise BridgeError("Runner did not produce a regular result file within the size limit.")
@@ -477,7 +486,8 @@ def execute(args, task: dict, lease: Lease, run_dir: Path) -> tuple[str, dict]:
             try:
                 process.stdin.close()
             finally:
-                stop_process(process)
+                if not group_stopped:
+                    stop_process(process)
 
 
 def ollama_worker(args) -> int:
