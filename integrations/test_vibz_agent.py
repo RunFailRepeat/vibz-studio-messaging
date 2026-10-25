@@ -219,7 +219,7 @@ class AdapterTests(unittest.TestCase):
                 self.assertEqual(command[command.index("--sandbox") + 1], "read-only")
                 return process
 
-            with mock.patch.object(bridge.subprocess, "Popen", side_effect=launch):
+            with mock.patch.object(bridge.os, "killpg"), mock.patch.object(bridge.os, "set_blocking"), mock.patch.object(bridge.os, "write", side_effect=lambda fd, data: len(data)), mock.patch.object(bridge.subprocess, "Popen", side_effect=launch):
                 summary, evidence = bridge.execute(args, {"id": "t", "title": "$(touch unwanted); shell text"}, lease, root)
             self.assertIn("Actual test runner result", summary)
             self.assertIn("SHA-256", evidence["label"])
@@ -238,8 +238,8 @@ class AdapterTests(unittest.TestCase):
             process.poll.side_effect = [None, 0, 0]
             process.returncode = 0
             (root / "result.txt").write_text("Result")
-            with mock.patch.object(bridge.subprocess, "Popen", return_value=process), \
-                    mock.patch.object(bridge.time, "monotonic", side_effect=[0, 0, 31, 31, 31]), \
+            with mock.patch.object(bridge.os, "killpg"), mock.patch.object(bridge.os, "set_blocking"), mock.patch.object(bridge.os, "write", side_effect=lambda fd, data: len(data)), mock.patch.object(bridge.subprocess, "Popen", return_value=process), \
+                    mock.patch.object(bridge.time, "monotonic", side_effect=[0, 0, 31, 31, 31, 31]), \
                     mock.patch.object(bridge.time, "sleep"):
                 bridge.execute(args, {"id": "t"}, lease, root)
             actions = [p["action"] for p in client.requests]
@@ -256,7 +256,7 @@ class AdapterTests(unittest.TestCase):
                                          "leaseId": "l", "leaseExpiresAt": "2099-01-01T00:00:00Z"})
             process = mock.Mock()
             process.poll.return_value = None
-            with mock.patch.object(bridge.subprocess, "Popen", return_value=process), \
+            with mock.patch.object(bridge.os, "killpg"), mock.patch.object(bridge.os, "set_blocking"), mock.patch.object(bridge.os, "write", side_effect=lambda fd, data: len(data)), mock.patch.object(bridge.subprocess, "Popen", return_value=process), \
                     mock.patch.object(bridge.time, "monotonic", side_effect=[0, 0, 31, 31]), \
                     mock.patch.object(bridge, "stop_process") as stop:
                 with self.assertRaises(bridge.LeaseLost):

@@ -189,3 +189,52 @@ PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s integrations -p 'test_
 The tests cover separate gateway/agent headers, redirect rejection, unchanged retry payloads, pending-journal recovery, secret redaction, expired/completed claims, progress-only lease renewal, stopping work after lease loss, `shell=False` execution, exclusion of hub credentials from Ollama and Codex contexts, and mention command shapes and idempotent replies.
 
 These are offline tests with fake HTTP responses and subprocesses. They do not claim that a private Site service credential exists, that an existing personal assistant is connected, or that Codex/Ollama executed a live task. No live agent was launched while this adapter was implemented.
+
+### Rework handoff context (J1)
+
+The shared Codex/Ollama prompt preserves the canonical task id/title/brief/acceptance
+and includes the current attempt when supplied. Nonempty review context includes
+only `reviewNote`, previous `result`, and evidence `label`/`url` fields. Limits match
+the service contract: 4,000 note characters, 20,000 result characters, 12 evidence
+items with 1,000-character labels and 2,048-character URLs. Out-of-contract context
+is bounded with explicit `truncatedFields`; oversized canonical instructions fail
+closed instead of silently changing the brief. Known configured bridge credentials
+are redacted before JSON escaping. This is not a general detector for arbitrary
+secrets embedded in user text.
+
+Review text and previous candidates are explicitly untrusted task data, not
+permission to change scope, access, configuration or approve work. Evidence is
+not independently verified; URLs do not authorize fetching. The current service
+exposes no delivery/revision identity: the prompt states that limit rather than
+inventing an identity from the current execution attempt. This does not repair
+backend review-version fencing. Fresh tasks do not get invented review context.
+
+The Ollama worker accepts the same bounded prompt as Codex (512,000 characters),
+including JSON escaping, and rejects over-limit input instead of silently reading
+only a prefix. `test_rework_prompt.py` additionally requires the project's existing
+Node 24/dependencies and SQLite harness. It seeds synthetic membership, runs real
+production create/claim/deliver/changes-requested/claim methods, and captures both
+runners using mocked subprocesses. No model or live service is contacted. Run all
+bridge tests with the unittest command above, or run only the dependency-free
+original suite with `-p 'test_vibz_agent.py'`.
+
+### Supervised runner input (issue #6)
+
+Runner stdin is nonblocking. Partial writes share the execution supervision loop,
+so pending input cannot postpone timeout or lease-validity checks. A broken pipe
+or process exit before the entire prompt is sent rejects the candidate, including
+exit status zero. Stdin closes on every exit path before process-group
+cleanup, including when the group leader has already exited. Remaining group
+members receive SIGKILL after the bounded SIGTERM/leader-wait phase. Once bytes have entered the pipe, the bridge cannot prove a runner read
+or understood them; completion remains a candidate for human review.
+
+`test_runner_input.py` uses finite local Python children and a constrained pipe
+to cover a nonreader deadline, lease loss during pending input, a slow reader
+receiving the complete Unicode/escaped context, premature zero exit, and broken
+pipe cleanup. Each checks closed stdin and a reaped child with no remaining test
+process group. An additional test verifies that an exited leader's same-group
+descendant is terminated even when it ignores SIGTERM (a zombie awaiting host
+reaping is distinguished from runnable work). These Linux tests require
+`fcntl.F_SETPIPE_SZ`; they do not run models or call a network service. Descendants
+that create a new session and escape the process group require host containment;
+this bridge does not provide that containment.
