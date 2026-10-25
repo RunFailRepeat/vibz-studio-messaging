@@ -1,60 +1,77 @@
-# Concrete native-event hosting proposal (approval not granted)
+# Free-only native event hosting assessment
 
-Prepared 2026-10-25 for issues #1 and #3. No infrastructure was provisioned.
+2026-10-25. This supersedes and WITHDRAWS the earlier paid VM proposal. No paid
+approval is requested; no account, service, credential, subscription or network
+change has been created. Authorized local implementation continues.
 
-## Source-backed boundary
+## Best documented no-cost candidate, not a working deployment
 
-Sites runs an HTTP-only Cloudflare Worker (128 MB; no raw TCP), with D1/R2
-bindings. Its worker exports fetch only. D1 batch can atomically insert mentions
-and an immutable event/outbox row, but no supported durable post-commit wakeup or
-DNS-to-socket pinning facility has been verified in this deployment. An HTTP
-call after D1 commit is not a reliable bridge. SQLite tests do not fix that gap.
+Cloudflare Workers Free with a SQLite-backed Durable Object is the focused
+candidate. Its SQLite storage and durable alarms can place application state and
+scheduled execution in one object rather than split D1 commits from an external
+Node queue. This is an architectural candidate; it has not been deployed or tested
+against real callbacks here. Node is not a product requirement: any runtime with
+equivalent transaction, wakeup and callback security guarantees is acceptable.
 
-## Proposed first approval: isolated native-event staging host
+Official free-plan limits: 100,000 requests/day (including alarms), 13,000 GB-s/day,
+5 million rows read/day, 100,000 rows written/day and 5 GB stored/account. Exceeding
+a free limit makes the corresponding operations fail; daily limits reset at
+00:00 UTC. Do not upgrade to paid or accept automatic-charge terms.
+https://developers.cloudflare.com/durable-objects/platform/pricing/
 
-One DigitalOcean Basic regular CPU Droplet: 1 vCPU, 1 GiB RAM, 25 GiB SSD,
-1,000 GiB/month transfer; listed price $6/month ($0.00893/hour), excluding tax.
-Additional outbound transfer is $0.01/GiB. No paid backups, load balancer,
-managed database, new domain purchase, or extra disk is included. This is a
-single-node staging proposal, not a production availability claim. Provider
-pricing checked 2026-10-25:
-https://www.digitalocean.com/pricing/droplets
-https://docs.digitalocean.com/products/droplets/details/pricing/
+Objects may shut down when idle while retaining durable state; alarms provide
+scheduled activation rather than requiring an always-on process. Alarms are
+at-least-once and have bounded automatic retries. Idempotence, persisted retry
+state, and alarm rearming must survive interruption. This is not permission to
+run periodic mention polling.
+https://developers.cloudflare.com/durable-objects/
+https://developers.cloudflare.com/durable-objects/api/alarms/
 
-The owner would approve: creation of this one paid test VM; installation of a
-pinned supported Node runtime and HTTPS reverse proxy; one existing owner-owned
-DNS subdomain and certificate; inbound HTTPS 443 and owner-restricted SSH
-administration; outbound DNS and HTTPS for verified event callbacks/package
-installation; a service account, isolated persistent directory and protected
-secret material; restart-supervised service. No collaborator grants, Framework
-exposure, Site audience change or production migration is included.
+## Existing Sites boundary
 
-Use synthetic test records only initially. Run lifecycle endpoint and SQLite
-mutation/outbox in the same process/transaction boundary. An event-driven
-executor schedules from committed jobs, persists lease/retry deadlines, and
-re-arms exact pending deadlines after restart; it must not periodically scan
-for new mentions. Wakeup is driven by successful local commit, with startup
-recovery covering a crash between commit and wakeup. This executor still needs
-implementation and real restart validation; durable rows alone are not enough.
+The inspected Site exposes D1/R2 and an HTTP fetch handler. Neither its current
+manifest nor the supported Sites capability references establish a Durable Object
+binding or a same-D1-transaction durable alarm. D1 plus an HTTP wakeup to another
+service still has a loss window. Adding a generic Cloudflare feature does not
+prove it is available through Sites. The local adapter rejects production commits
+when the required transactional wake capability is absent.
 
-Authenticate every MCP lifecycle request with reviewed identity verification;
-never trust client-supplied owner IDs or Sites identity headers arriving directly
-at the public Node host. Store callback secrets encrypted with a separate host
-key. The current pure adapter injects those boundaries and cannot substitute
-for them. Callback verification and delivery use reviewed PR4 transport, with
-its explicit IPv4-only restriction. No real subscription is authorized yet.
+Preferred next step is a supported Sites runtime capability confirmation, without
+changing bindings or access. If unavailable, a standalone Workers Free/SQLite
+Durable Object design would require a separately approved account/resource and
+an explicit authoritative messaging migration, plus trusted identity integration.
+No existing authorized account or migration permission has been established here.
+The owner is not being asked to design that architecture.
 
-## Production decision after staging evidence
+## Callback security is an independent unresolved gate
 
-This staging host does NOT solve D1-to-Node atomic dispatch. Production requires
-either (a) a proven supported durable wakeup from the same Sites D1 transaction,
-or (b) an owner-approved migration of authoritative messaging writes and outbox
-to the same Node database boundary, with the private Site acting as an
-authenticated frontend. Option (b) is the concrete fallback design; it requires
-additional reviewed source work and explicit private-data migration approval.
-Do not dual-write messages in D1 and outbox in SQLite or silently move data.
+Ordinary Workers fetch resolveOverride is restricted to names in the same zone;
+it is not a general validated-IP pinning mechanism for arbitrary callback hosts.
+https://developers.cloudflare.com/workers/runtime-apis/request/
+The documented TCP API blocks private/localhost and Cloudflare destination IPs;
+its documented interface does not establish the required validated-IP connection
+with independent original-host TLS identity for arbitrary HTTPS callbacks here.
+https://developers.cloudflare.com/workers/runtime-apis/tcp-sockets/
+Sites itself documents HTTP-only external connections and no raw TCP.
 
-A $6 staging approval therefore buys a place to prove secure event lifecycle and
-native activation against synthetic records, not a promise of a three-day
-production release. If no infrastructure spending/access is approved, retain
-local executable contracts and keep native activation marked blocked.
+A DNS precheck followed by an unrelated fetch is not accepted as rebinding-safe.
+Do not disable certificate validation, follow redirects, hardcode a callback
+bypass, or assume a platform allowlist. Before implementation on this runtime,
+prove an equivalent secure transport using supported provider primitives and
+real controlled tests. The current Node transport is reference behavior, not a
+mandate to purchase a Node server.
+
+## Cost and permission hold
+
+Target incremental hosting spend: $0 on the documented Free plan, with failures
+rather than paid upgrades at quota exhaustion. No account onboarding was attempted;
+card requirements and account eligibility were not verified. If setup requests a
+card, enables billing/automatic charges, or needs an account, credential, security
+rule or access grant, stop for specific owner approval. Do not expose the owner's
+computer or use an unattended local workstation as a silent hosting substitute.
+
+Conclusion: no tested no-cost end-to-end route can be claimed yet. The concrete
+technical holds are Sites durable-wakeup availability and equivalent callback
+transport protection. Local transaction/executor/auth fault tests can proceed
+without either hold being bypassed. Secret rotation and live authenticated
+mention → invocation → reply remain additional release gates.

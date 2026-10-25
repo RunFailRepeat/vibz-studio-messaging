@@ -1,0 +1,10 @@
+--- a/lib/studio.ts
++++ b/lib/studio.ts
+@@ -3,0 +4 @@
++import { commitAuthoritativeMessage } from '../integrations/native-events/authoritative-batch.mjs';
+@@ -139 +140 @@
+-    await this.db.batch([
++    await commitAuthoritativeMessage(this.db,[
+@@ -146 +147 @@
+-    ]);
++    ],{messageId:id,nowMs:Date.parse(now)});
